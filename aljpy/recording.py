@@ -1,28 +1,32 @@
-import av
-from io import BytesIO
-import numpy as np
 import base64
-from IPython.display import display, HTML
-from pathlib import Path
+from io import BytesIO
 from multiprocessing import cpu_count
+from pathlib import Path
+
+import av
 import matplotlib.pyplot as plt
+import numpy as np
+from IPython.display import HTML, display
 from tqdm.auto import tqdm
-from .parallel import parallel
+
 from .log import logger
+from .parallel import parallel
 
 log = logger()
+
 
 def array(fig):
     fig.canvas.draw_idle()
     renderer = fig.canvas.get_renderer()
     w, h = int(renderer.width), int(renderer.height)
-    return (np.frombuffer(renderer.buffer_rgba(), np.uint8)
-                        .reshape((h, w, 4))
-                        [:, :, :3]
-                        .copy())
+    return (
+        np.frombuffer(renderer.buffer_rgba(), np.uint8)
+        .reshape((h, w, 4))[:, :, :3]
+        .copy()
+    )
+
 
 class Encoder:
-
     def __init__(self, fps):
         """This follows the [PyAV cookbook](http://docs.mikeboers.com/pyav/develop/cookbook/numpy.html#generating-video)"""
         self._fps = fps
@@ -30,21 +34,21 @@ class Encoder:
 
     def _initialize(self, arr):
         self._content = BytesIO()
-        self._container = av.open(self._content, 'w', 'mp4')
+        self._container = av.open(self._content, "w", "mp4")
 
-        self._stream = self._container.add_stream('h264', rate=self._fps)
-        self._stream.pix_fmt = 'yuv420p'
+        self._stream = self._container.add_stream("h264", rate=self._fps)
+        self._stream.pix_fmt = "yuv420p"
         self._stream.height = arr.shape[0]
         self._stream.width = arr.shape[1]
 
-        pixelformats = {1: 'gray', 3: 'rgb24'}
+        pixelformats = {1: "gray", 3: "rgb24"}
         self._pixelformat = pixelformats[arr.shape[2]]
 
         self.height, self.width = arr.shape[:2]
-        self.mimetype = 'mp4'
+        self.mimetype = "mp4"
 
         self._initialized = True
-    
+
     def __enter__(self):
         return self
 
@@ -59,7 +63,7 @@ class Encoder:
 
         # Float arrs are assumed to have a domain of [0, 1], for backward-compatability with OpenCV.
         if np.issubdtype(arr.dtype, np.floating):
-            arr = (255*arr)
+            arr = 255 * arr
         if not np.issubdtype(arr.dtype, np.uint8):
             arr = arr.astype(np.uint8).clip(0, 255)
 
@@ -75,11 +79,12 @@ class Encoder:
             self._container.close()
             self.value = self._content.getvalue()
         return False
-        
+
+
 def html_tag(encoder, height=960, **kwargs):
-    width = encoder.width/encoder.height*height
+    width = encoder.width / encoder.height * height
     style = f"height: {height}px;" if height else ""
-    b64 = base64.b64encode(encoder.value).decode('utf-8')
+    b64 = base64.b64encode(encoder.value).decode("utf-8")
     tag = f"""
         <video controls autoplay loop style="{style}">
             <source type="video/{encoder.mimetype}" src="data:video/{encoder.mimetype};base64,{b64}">
@@ -87,24 +92,34 @@ def html_tag(encoder, height=960, **kwargs):
         </video>"""
     return tag, (height, width)
 
+
 def notebook(encoder, **kwargs):
     return display(HTML(html_tag(encoder, **kwargs)[0]))
+
 
 def save(encoder, path):
     Path(path).write_text(html_tag(encoder)[0])
 
-def parallel_encode(f, *indexable, canceller=None, fps=20, N=0, n_frames=None, **kwargs):
-    """To use this with N > 0, you need to return an array and - if it's a new figure each time - 
-    close it afterwards"""
+
+def parallel_encode(
+    f, *indexable, canceller=None, fps=20, N=0, n_frames=None, **kwargs
+):
+    """To use this with N > 0, you need to return an array and - if it's a new figure each time -
+    close it afterwards
+    """
     n_frames = len(indexable[0]) if n_frames is None else n_frames
-    log.info(f'Encoding begun on {n_frames} frames')
-    queuesize = 2*cpu_count() 
+    log.info(f"Encoding begun on {n_frames} frames")
+    queuesize = 2 * cpu_count()
     submitted, contiguous = 0, 0
     futures = {}
-    with Encoder(fps) as encoder, parallel(f, progress=False, N=N) as p, tqdm(total=n_frames) as pbar:
+    with Encoder(fps) as encoder, parallel(f, progress=False, N=N) as p, tqdm(
+        total=n_frames
+    ) as pbar:
         while True:
             if (submitted < n_frames) and (len(futures) < queuesize):
-                futures[submitted] = p(*[iable[submitted] for iable in indexable], **kwargs)
+                futures[submitted] = p(
+                    *[iable[submitted] for iable in indexable], **kwargs
+                )
                 submitted += 1
             if (contiguous in futures) and futures[contiguous].done():
                 result = futures[contiguous].result()
@@ -117,12 +132,11 @@ def parallel_encode(f, *indexable, canceller=None, fps=20, N=0, n_frames=None, *
                 contiguous += 1
                 pbar.update(1)
                 if (N == 0) and (contiguous % 100 == 0):
-                    log.info(f'Finished {contiguous}/{n_frames} frames')
+                    log.info(f"Finished {contiguous}/{n_frames} frames")
             if contiguous == n_frames:
-                log.info('Encoding finished')
+                log.info("Encoding finished")
                 return encoder
 
-
             if canceller and canceller.is_set():
-                log.info('Canceller set, breaking')
+                log.info("Canceller set, breaking")
                 return None

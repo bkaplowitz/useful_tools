@@ -1,8 +1,12 @@
-from .log import logger
-from .timer import timer
-from .humanhash import humanhash
-from .cache import autocache, memcache, timecache
-from .parallel import parallel
-from .dotdict import dotdict, mapping, starmapping
-from .debugging import extract
-from .wiki import wikitable
+from .cache import autocache as autocache
+from .cache import memcache as memcache
+from .cache import timecache as timecache
+from .debugging import extract as extract
+from .dotdict import dotdict as dotdict
+from .dotdict import mapping as mapping
+from .dotdict import starmapping as starmapping
+from .humanhash import humanhash as humanhash
+from .log import logger as logger
+from .parallel import parallel as parallel
+from .timer import timer as timer
+from .wiki import wikitable as wikitable
